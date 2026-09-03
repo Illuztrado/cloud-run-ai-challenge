@@ -1,0 +1,29 @@
+{
+  "entities": {
+    "UserProfile": {
+      "collection": "users",
+      "fields": {
+        "uid": { "type": "string", "description": "Unique Firebase Auth User ID" },
+        "email": { "type": "string", "description": "User email address" },
+        "displayName": { "type": "string", "description": "User display name" },
+        "photoURL": { "type": "string", "description": "User avatar URL" },
+        "createdAt": { "type": "timestamp", "description": "Account creation timestamp" },
+        "lastLoginAt": { "type": "timestamp", "description": "Last sign in timestamp" }
+      }
+    },
+    "JournalEntry": {
+      "collection": "users/{userId}/entries",
+      "fields": {
+        "id": { "type": "string", "description": "Entry document identifier" },
+        "userId": { "type": "string", "description": "Owner user UID" },
+        "title": { "type": "string", "description": "Title or topic of the journal reflection" },
+        "summary": { "type": "string", "description": "AI-generated or user summary of the reflection" },
+        "tags": { "type": "array", "description": "Tags or keywords for classification" },
+        "mood": { "type": "string", "description": "Optional mood or emotional tone" },
+        "messages": { "type": "array", "description": "Array of multi-turn chat messages between user and Gemini" },
+        "createdAt": { "type": "timestamp", "description": "Creation timestamp" },
+        "updatedAt": { "type": "timestamp", "description": "Last updated timestamp" }
+      }
+    }
+  }
+}

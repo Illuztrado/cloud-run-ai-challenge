@@ -1,0 +1,7 @@
+{
+  "name": "Gemini Reflection Journal",
+  "description": "A private, user-authenticated journaling and reflection application powered by Gemini AI and Cloud Firestore for multi-turn reflections, insights, and session history.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
