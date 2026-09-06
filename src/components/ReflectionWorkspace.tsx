@@ -21,7 +21,6 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { JournalEntry, JournalMessage, ReflectionMode } from '../types';
-import { VoiceSpeechInput } from './VoiceSpeechInput';
 
 interface ReflectionWorkspaceProps {
   entry: JournalEntry;
@@ -414,21 +413,13 @@ export const ReflectionWorkspace: React.FC<ReflectionWorkspaceProps> = ({
             </div>
             <h2 className="text-xl font-serif text-neutral-100 mb-2">Begin Your Reflection</h2>
             <p className="text-sm text-neutral-400 mb-6 max-w-md mx-auto leading-relaxed">
-              Express what is on your mind today. Type freely or speak into your microphone—Gemini is here to help you reflect, synthesize, and gain clarity.
+              Express what is on your mind today. Type freely—Gemini is here to help you reflect, synthesize, and gain clarity.
             </p>
 
-            {/* Voice & Prompts Starter */}
+            {/* Prompts Starter */}
             <div className="mb-6 flex flex-col items-center justify-center gap-2">
-              <VoiceSpeechInput
-                variant="prominent"
-                buttonLabel="Speak into Microphone"
-                onTranscriptReady={(transcript) => {
-                  setInputContent((prev) => (prev.trim() ? prev + ' ' + transcript : transcript));
-                  textareaRef.current?.focus();
-                }}
-              />
-              <span className="text-[11px] text-neutral-500">
-                or choose a reflection prompt below:
+              <span className="text-xs text-neutral-400 font-medium">
+                Choose a reflection prompt to get started:
               </span>
             </div>
 
@@ -608,18 +599,10 @@ export const ReflectionWorkspace: React.FC<ReflectionWorkspaceProps> = ({
               value={inputContent}
               onChange={(e) => setInputContent(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Write or speak into your microphone to add a journal entry... (Enter to send, Shift+Enter for new line)"
+              placeholder="Write a journal entry... (Enter to send, Shift+Enter for new line)"
               className="w-full bg-transparent text-neutral-100 placeholder-neutral-500 text-sm p-3 focus:outline-none resize-none leading-relaxed min-h-[50px] max-h-40"
             />
           </div>
-
-          <VoiceSpeechInput
-            onTranscriptReady={(transcript) => {
-              setInputContent((prev) => (prev.trim() ? prev + ' ' + transcript : transcript));
-              textareaRef.current?.focus();
-            }}
-            disabled={isGenerating}
-          />
 
           <button
             id="send-message-button"

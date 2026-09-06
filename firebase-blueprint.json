@@ -7,8 +7,23 @@
         "email": { "type": "string", "description": "User email address" },
         "displayName": { "type": "string", "description": "User display name" },
         "photoURL": { "type": "string", "description": "User avatar URL" },
+        "role": { "type": "string", "description": "RBAC role: admin, moderator, or user" },
+        "roleUpdatedAt": { "type": "timestamp", "description": "Timestamp when the role was updated" },
         "createdAt": { "type": "timestamp", "description": "Account creation timestamp" },
         "lastLoginAt": { "type": "timestamp", "description": "Last sign in timestamp" }
+      }
+    },
+    "AdminAuditLog": {
+      "collection": "admin_metrics/audit_logs/events",
+      "fields": {
+        "id": { "type": "string", "description": "Audit event ID" },
+        "actorEmail": { "type": "string", "description": "Email of admin who performed action" },
+        "actorUid": { "type": "string", "description": "UID of admin" },
+        "targetUid": { "type": "string", "description": "UID of affected user" },
+        "action": { "type": "string", "description": "Security action performed" },
+        "previousRole": { "type": "string", "description": "Previous role before modification" },
+        "newRole": { "type": "string", "description": "New role assigned" },
+        "timestamp": { "type": "timestamp", "description": "Event timestamp" }
       }
     },
     "JournalEntry": {
@@ -23,6 +38,38 @@
         "messages": { "type": "array", "description": "Array of multi-turn chat messages between user and Gemini" },
         "createdAt": { "type": "timestamp", "description": "Creation timestamp" },
         "updatedAt": { "type": "timestamp", "description": "Last updated timestamp" }
+      }
+    },
+    "RideEntry": {
+      "collection": "users/{userId}/ride_entries",
+      "fields": {
+        "id": { "type": "string", "description": "Unique ride entry ID" },
+        "userId": { "type": "string", "description": "Owner UID (isolated)" },
+        "rideService": { "type": "string", "description": "Ride hailing service: Grab, Angkas, JoyRide, Move It, InDrive, etc." },
+        "farePaid": { "type": "number", "description": "Fare paid in Philippine Pesos (PHP)" },
+        "pickupAddress": { "type": "string", "description": "Pick up address / landmark" },
+        "destinationAddress": { "type": "string", "description": "Drop off destination address / landmark" },
+        "tripDuration": { "type": "string", "description": "Time elapsed or duration of trip (optional)" },
+        "reviewText": { "type": "string", "description": "User review or feedback (default None)" },
+        "receiptImage": { "type": "string", "description": "Receipt image or screenshot thumbnail/data" },
+        "messages": { "type": "array", "description": "Multi-turn prompts and Gemini conversations" },
+        "createdAt": { "type": "timestamp", "description": "Timestamp created" }
+      }
+    },
+    "CommunityRide": {
+      "collection": "community_rides",
+      "fields": {
+        "id": { "type": "string", "description": "Shared ride record ID" },
+        "userId": { "type": "string", "description": "Author UID" },
+        "userDisplayName": { "type": "string", "description": "Author display name or anonymous" },
+        "rideService": { "type": "string", "description": "Ride hailing service name" },
+        "farePaid": { "type": "number", "description": "Fare in PHP" },
+        "pickupAddress": { "type": "string", "description": "Pick up location" },
+        "destinationAddress": { "type": "string", "description": "Destination location" },
+        "tripDuration": { "type": "string", "description": "Trip duration (optional)" },
+        "reviewText": { "type": "string", "description": "Review or feedback (default None)" },
+        "hasReceipt": { "type": "boolean", "description": "Whether verified via receipt upload" },
+        "createdAt": { "type": "timestamp", "description": "Creation timestamp" }
       }
     }
   }

@@ -1,19 +1,69 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // User profile document
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    // Hybrid check: Checks cryptographically signed JWT token claim, verified project owner email,
+    // and trusted user profile role document.
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'admin' ||
+        (request.auth.token.email == 'canindojp@gmail.com' && request.auth.token.email_verified == true) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
 
-      // User personal journal entries
+    // User profile documents
+    match /users/{userId} {
+      // Owners can read their profile; Admins can read user profiles for management
+      allow read: if isOwner(userId) || isAdmin();
+
+      // Standard users can update their profile, but are strictly forbidden from self-assigning or changing 'role'
+      allow create: if isOwner(userId) && (!('role' in request.resource.data) || request.resource.data.role == 'user' || isAdmin());
+      allow update: if (isOwner(userId) && (!('role' in request.resource.data) || request.resource.data.role == resource.data.role)) || isAdmin();
+      
+      // Administrators have write permissions on user profiles (e.g. updating roles or account flags)
+      allow write: if isAdmin();
+
+      // User personal journal entries: strict isolation (admins and other users cannot read or modify personal reflections)
       match /entries/{entryId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+        allow read, write: if isOwner(userId);
+      }
+
+      // User personal ride tracking entries & multi-turn conversations: strictly isolated to the owner
+      match /ride_entries/{entryId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Direct interactions path for AI interaction sessions
+      match /interactions/{interactionId} {
+        allow read, write: if isOwner(userId);
       }
     }
 
-    // Direct interactions path for AI interaction sessions and telemetry
-    match /users/{userId}/interactions/{interactionId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+    // Public crowdsourced community price board
+    // Reads are public so arriving visitors can see latest pricing trends & recent rides
+    match /community_rides/{rideId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Community AI summary cache
+    match /community_summaries/{summaryId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    // Administrative metrics & telemetry collections
+    match /admin_metrics/{document=**} {
+      allow read, write: if isAdmin();
     }
   }
 }
+

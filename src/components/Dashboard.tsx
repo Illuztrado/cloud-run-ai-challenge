@@ -1,113 +1,143 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User } from 'firebase/auth';
 import {
-  saveJournalEntry,
-  deleteJournalEntry,
-  subscribeToUserEntries,
+  saveRideEntry,
+  deleteRideEntry,
+  subscribeToUserRides,
+  publishCommunityRide,
+  subscribeToCommunityRides,
+  seedInitialCommunityRidesIfEmpty,
   logOut,
 } from '../lib/firebase';
-import { JournalEntry, AISummaryResult } from '../types';
-import { Navbar } from './Navbar';
-import { HistorySidebar } from './HistorySidebar';
-import { ReflectionWorkspace } from './ReflectionWorkspace';
-import { Menu, Sparkles, BookOpen, AlertCircle } from 'lucide-react';
+import { RideEntry, CommunityRide, RideHailingApp } from '../types';
+import { Navbar, DashboardView } from './Navbar';
+import { RideWorkspace } from './RideWorkspace';
+import { RideHistorySidebar } from './RideHistorySidebar';
+import { CommunityBoard } from './CommunityBoard';
+import { AdminDashboard } from './AdminDashboard';
+import { AdminGuard } from './AdminGuard';
+import { AlertCircle, Menu, X, Car, History, Users, Settings, Plus } from 'lucide-react';
+import { useAdminAuth } from '../hooks/useAdminAuth';
 
 interface DashboardProps {
   user: User;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
-  const [entries, setEntries] = useState<JournalEntry[]>([]);
-  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  const { isAdmin } = useAdminAuth(user);
+  const [currentView, setCurrentView] = useState<DashboardView>('private');
+  const [userRides, setUserRides] = useState<RideEntry[]>([]);
+  const [communityRides, setCommunityRides] = useState<CommunityRide[]>([]);
+  const [selectedRideId, setSelectedRideId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [isSummarizing, setIsSummarizing] = useState(false);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [firestoreError, setFirestoreError] = useState<string | null>(null);
-  const [failedEntryToRetry, setFailedEntryToRetry] = useState<JournalEntry | null>(null);
-  const [isRetryingSave, setIsRetryingSave] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
-  // Auto-save debounce timer
+  // Auto-save debounce timer ref
   const saveTimeoutRef = useRef<any>(null);
 
-  // Create a brand new blank entry
-  const createNewEntry = useCallback((): JournalEntry => {
-    const newId = 'entry_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+  // Factory function to generate a clean, blank ride entry
+  const createNewRide = useCallback((): RideEntry => {
+    const newId = 'ride_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
     const now = new Date().toISOString();
     return {
       id: newId,
       userId: user.uid,
-      title: 'Untitled Reflection',
-      summary: '',
-      tags: [],
-      mood: 'Reflective',
+      rideService: 'Grab',
+      farePaid: 0,
+      pickupAddress: '',
+      destinationAddress: '',
+      tripDuration: '',
+      tripDistance: '',
+      reviewText: 'None',
+      receiptImage: '',
       messages: [],
       createdAt: now,
       updatedAt: now,
     };
   }, [user.uid]);
 
+  // Seed initial community data on first load if empty
+  useEffect(() => {
+    if (user) {
+      seedInitialCommunityRidesIfEmpty(user);
+    }
+  }, [user]);
+
   // Subscribe to realtime updates for this user's isolated Firestore entries
   useEffect(() => {
     if (!user || !user.uid) return;
 
-    const unsubscribe = subscribeToUserEntries(
+    const unsubscribe = subscribeToUserRides(
       user.uid,
-      (fetchedEntries) => {
-        setEntries(fetchedEntries);
+      (rides) => {
+        setUserRides(rides);
         setFirestoreError(null);
 
-        // If no entry is currently selected or current selection was deleted
-        setSelectedEntryId((prevId) => {
-          if (prevId && fetchedEntries.some((e) => e.id === prevId)) {
+        // If no ride is currently selected or current selection was deleted
+        setSelectedRideId((prevId) => {
+          if (prevId && rides.some((r) => r.id === prevId)) {
             return prevId;
           }
-          if (fetchedEntries.length > 0) {
-            return fetchedEntries[0].id;
+          if (rides.length > 0) {
+            return rides[0].id;
           }
           return null;
         });
       },
       (error) => {
-        console.error('Firestore subscription error:', error);
-        setFirestoreError('Failed to sync entries with Firestore. Please ensure your session is valid.');
+        console.error('Firestore personal ride subscription error:', error);
+        setFirestoreError('Failed to sync rides with Firestore. Please check connection.');
       }
     );
 
     return () => unsubscribe();
   }, [user]);
 
-  // Derive active selected entry
-  const activeEntry: JournalEntry = React.useMemo(() => {
-    const found = entries.find((e) => e.id === selectedEntryId);
+  // Subscribe to realtime crowdsourced community rides
+  useEffect(() => {
+    const unsubscribe = subscribeToCommunityRides(
+      (rides) => {
+        setCommunityRides(rides);
+      },
+      (error) => {
+        console.error('Firestore community subscription error:', error);
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  // Derive active selected ride
+  const activeRide: RideEntry = React.useMemo(() => {
+    const found = userRides.find((r) => r.id === selectedRideId);
     if (found) return found;
+    return createNewRide();
+  }, [userRides, selectedRideId, createNewRide]);
 
-    // If no existing entries in Firestore, initialize a transient new entry
-    return createNewEntry();
-  }, [entries, selectedEntryId, createNewEntry]);
-
-  // Update entry handler with auto-save to Firestore
-  const handleUpdateEntry = (updates: Partial<JournalEntry>) => {
-    const updatedEntry: JournalEntry = {
-      ...activeEntry,
+  // Handle Updates to the active ride
+  const handleUpdateActiveRide = (updates: Partial<RideEntry>) => {
+    const updated: RideEntry = {
+      ...activeRide,
       ...updates,
       updatedAt: new Date().toISOString(),
     };
 
-    // Optimistically update local entries state
-    setEntries((prev) => {
-      const exists = prev.some((e) => e.id === updatedEntry.id);
+    // Optimistically update local user rides state
+    setUserRides((prev) => {
+      const exists = prev.some((r) => r.id === updated.id);
       if (exists) {
-        return prev.map((e) => (e.id === updatedEntry.id ? updatedEntry : e));
+        return prev.map((r) => (r.id === updated.id ? updated : r));
       } else {
-        return [updatedEntry, ...prev];
+        return [updated, ...prev];
       }
     });
 
-    if (selectedEntryId !== updatedEntry.id) {
-      setSelectedEntryId(updatedEntry.id);
+    if (selectedRideId !== updated.id) {
+      setSelectedRideId(updated.id);
     }
 
-    // Debounce save to Firestore
+    // Debounce save to isolated user collection
     setIsSaving(true);
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
@@ -115,164 +145,259 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
 
     saveTimeoutRef.current = setTimeout(async () => {
       try {
-        await saveJournalEntry(user.uid, updatedEntry);
+        await saveRideEntry(user.uid, updated);
         setFirestoreError(null);
-        setFailedEntryToRetry(null);
       } catch (err: any) {
-        console.error('Error saving to Firestore:', err);
-        setFailedEntryToRetry(updatedEntry);
-        setFirestoreError(`Database save error: ${err.message || 'Could not persist entry to Firestore.'}`);
+        console.error('Error auto-saving ride to Firestore:', err);
+        setFirestoreError(`Database save error: ${err.message || 'Could not persist ride.'}`);
       } finally {
         setIsSaving(false);
       }
     }, 600);
   };
 
-  // Retry Save action
-  const handleRetrySave = async () => {
-    if (!failedEntryToRetry) return;
-    setIsRetryingSave(true);
+  // Immediate Save handler
+  const handleSaveToHistory = async (rideToSave: RideEntry) => {
+    setIsSaving(true);
     try {
-      await saveJournalEntry(user.uid, failedEntryToRetry);
+      await saveRideEntry(user.uid, rideToSave);
       setFirestoreError(null);
-      setFailedEntryToRetry(null);
     } catch (err: any) {
-      console.error('Retry save failed:', err);
-      setFirestoreError(`Retry failed: ${err.message || 'Database error occurred.'}`);
+      console.error('Save to history error:', err);
+      setFirestoreError(`Failed to save: ${err.message}`);
+      throw err;
     } finally {
-      setIsRetryingSave(false);
+      setIsSaving(false);
     }
   };
 
-  // Handle New Entry creation
-  const handleNewEntry = () => {
-    const freshEntry = createNewEntry();
-    setEntries((prev) => [freshEntry, ...prev]);
-    setSelectedEntryId(freshEntry.id);
+  // Publish to General Community Board
+  const handlePublishToCommunity = async (communityRide: CommunityRide) => {
+    try {
+      await publishCommunityRide(communityRide);
+    } catch (err: any) {
+      console.error('Publish error:', err);
+      throw err;
+    }
+  };
+
+  // Handle Delete Ride from User History
+  const handleDeleteRide = async (rideId: string) => {
+    try {
+      await deleteRideEntry(user.uid, rideId);
+      setUserRides((prev) => prev.filter((r) => r.id !== rideId));
+      if (selectedRideId === rideId) {
+        setSelectedRideId(null);
+      }
+    } catch (err: any) {
+      console.error('Delete ride error:', err);
+      setFirestoreError(`Failed to delete ride: ${err.message}`);
+    }
+  };
+
+  // Handle New Ride creation
+  const handleNewRide = () => {
+    const fresh = createNewRide();
+    setUserRides((prev) => [fresh, ...prev]);
+    setSelectedRideId(fresh.id);
+    setCurrentView('private');
     setMobileSidebarOpen(false);
   };
 
-  // Handle Delete Entry
-  const handleDeleteEntry = async (entryId: string) => {
+  // Handle Sign Out
+  const handleSignOut = async () => {
     try {
-      await deleteJournalEntry(user.uid, entryId);
-      setEntries((prev) => prev.filter((e) => e.id !== entryId));
-      if (selectedEntryId === entryId) {
-        const remaining = entries.filter((e) => e.id !== entryId);
-        setSelectedEntryId(remaining.length > 0 ? remaining[0].id : null);
-      }
+      await logOut();
     } catch (err) {
-      console.error('Failed to delete entry:', err);
-    }
-  };
-
-  // AI Auto-Summarize & Metadata generator
-  const handleAutoSummarize = async () => {
-    if (!activeEntry.messages || activeEntry.messages.length === 0) return;
-
-    setIsSummarizing(true);
-    try {
-      const response = await fetch('/api/generate-summary', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: activeEntry.messages.map((m) => ({ role: m.role, content: m.content })),
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to generate summary');
-      }
-
-      const result: AISummaryResult = await response.json();
-
-      handleUpdateEntry({
-        title: result.title || activeEntry.title,
-        summary: result.summary || activeEntry.summary,
-        tags: Array.from(new Set([...(activeEntry.tags || []), ...(result.tags || [])])),
-        mood: result.mood || activeEntry.mood || 'Reflective',
-      });
-    } catch (err) {
-      console.error('Error during auto-summarize:', err);
-    } finally {
-      setIsSummarizing(false);
+      console.error('Sign out error:', err);
     }
   };
 
   return (
-    <div id="dashboard-container" className="flex flex-col h-screen bg-neutral-950 text-neutral-100 overflow-hidden">
-      {/* Top Navbar */}
+    <div className="flex flex-col h-screen w-full bg-neutral-950 text-neutral-100 overflow-hidden selection:bg-amber-500/30">
+      {/* Universal Top Navigation */}
       <Navbar
         user={user}
-        onNewEntry={handleNewEntry}
-        onSignOut={logOut}
+        currentView={currentView}
+        onSelectView={(view) => {
+          setCurrentView(view);
+          setMobileSidebarOpen(false);
+        }}
+        onNewRide={handleNewRide}
+        onSignOut={handleSignOut}
         isSaving={isSaving}
-        activeEntryTitle={activeEntry.title}
+        activeFare={activeRide.farePaid}
+        activeService={activeRide.rideService}
       />
 
-      {/* Firestore Error Alert with Explicit Recovery */}
+      {/* Global Error Banner */}
       {firestoreError && (
-        <div id="firestore-error-banner" className="bg-red-950/90 border-b border-red-800/80 px-4 py-2.5 text-xs text-red-200 flex items-center justify-between gap-3 animate-in fade-in">
-          <div className="flex items-center gap-2 min-w-0">
+        <div className="bg-red-950/90 border-b border-red-800 text-red-200 px-6 py-2 text-xs flex items-center justify-between z-20 flex-shrink-0">
+          <div className="flex items-center gap-2">
             <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
-            <span className="truncate">{firestoreError}</span>
+            <span>{firestoreError}</span>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {failedEntryToRetry && (
-              <button
-                id="retry-save-button"
-                onClick={handleRetrySave}
-                disabled={isRetryingSave}
-                className="px-2.5 py-1 bg-red-800 hover:bg-red-700 text-white rounded font-medium text-[11px] transition flex items-center gap-1.5"
-              >
-                {isRetryingSave ? 'Saving...' : 'Retry Save'}
-              </button>
-            )}
-            <button
-              onClick={() => setFirestoreError(null)}
-              className="text-red-400 hover:text-red-200 px-1 text-sm font-semibold"
-              title="Dismiss banner"
-            >
-              ✕
-            </button>
-          </div>
+          <button
+            onClick={() => handleSaveToHistory(activeRide)}
+            className="px-2.5 py-1 bg-red-900/90 hover:bg-red-800 text-red-100 rounded text-[11px] font-semibold"
+          >
+            Retry Save
+          </button>
         </div>
       )}
 
-      {/* Main App Body with Sidebar + Workspace */}
-      <div className="flex-1 flex overflow-hidden relative">
-        {/* Mobile Sidebar Toggle Button */}
+      {/* Main View Area */}
+      <div className="flex-1 flex min-h-0 relative pb-16 md:pb-0">
+        {currentView === 'private' && (
+          <>
+            {/* Desktop Left Sidebar: Private Ride History */}
+            <div className="hidden md:block h-full">
+              <RideHistorySidebar
+                rides={userRides}
+                selectedRideId={selectedRideId}
+                onSelectRide={(id) => setSelectedRideId(id)}
+                onNewRide={handleNewRide}
+                onDeleteRide={handleDeleteRide}
+              />
+            </div>
+
+            {/* Mobile Slide-over Sidebar Drawer */}
+            {mobileSidebarOpen && (
+              <div className="md:hidden fixed inset-0 z-50 flex">
+                <div
+                  className="fixed inset-0 bg-neutral-950/80 backdrop-blur-sm"
+                  onClick={() => setMobileSidebarOpen(false)}
+                />
+                <div className="relative w-80 max-w-[85vw] bg-neutral-900 h-full shadow-2xl z-50 flex flex-col">
+                  <RideHistorySidebar
+                    rides={userRides}
+                    selectedRideId={selectedRideId}
+                    onSelectRide={(id) => {
+                      setSelectedRideId(id);
+                      setMobileSidebarOpen(false);
+                    }}
+                    onNewRide={() => {
+                      handleNewRide();
+                      setMobileSidebarOpen(false);
+                    }}
+                    onDeleteRide={handleDeleteRide}
+                    onClose={() => setMobileSidebarOpen(false)}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Center Content: Workspace (Form + Scanner + Multi-Turn Gemini Advisor) */}
+            <RideWorkspace
+              user={user}
+              ride={activeRide}
+              onUpdateRide={handleUpdateActiveRide}
+              onSaveToHistory={handleSaveToHistory}
+              onPublishToCommunity={handlePublishToCommunity}
+              onDeleteRide={handleDeleteRide}
+            />
+          </>
+        )}
+
+        {currentView === 'community' && (
+          <div className="flex-1 overflow-y-auto w-full">
+            <CommunityBoard rides={communityRides} user={user} onSignedIn={() => {}} />
+          </div>
+        )}
+
+        {currentView === 'admin' && (
+          <div className="flex-1 overflow-y-auto w-full">
+            <AdminGuard user={user} onBackToJournal={() => setCurrentView('private')}>
+              <AdminDashboard user={user} onBackToJournal={() => setCurrentView('private')} />
+            </AdminGuard>
+          </div>
+        )}
+      </div>
+
+      {/* Mobile-First Bottom Navigation Bar with 44px+ touch ergonomics */}
+      <nav id="mobile-bottom-nav" className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-neutral-900/95 backdrop-blur-xl border-t border-neutral-800 px-3 py-1 flex items-center justify-around shadow-2xl safe-area-bottom">
         <button
-          id="mobile-menu-button"
-          onClick={() => setMobileSidebarOpen(true)}
-          className="md:hidden absolute bottom-4 left-4 z-30 p-3 bg-neutral-800 text-amber-400 rounded-full shadow-lg border border-neutral-700"
-          title="Open History"
+          id="mobile-nav-workspace"
+          onClick={() => {
+            setCurrentView('private');
+            setMobileSidebarOpen(false);
+          }}
+          className={`flex flex-col items-center justify-center min-h-[48px] min-w-[56px] px-2 py-1 rounded-xl transition active:scale-95 ${
+            currentView === 'private' && !mobileSidebarOpen
+              ? 'text-amber-400 font-bold'
+              : 'text-neutral-400 hover:text-neutral-200 font-medium'
+          }`}
         >
-          <Menu className="w-5 h-5" />
+          <Car className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] tracking-tight">Active Trip</span>
         </button>
 
-        {/* History Sidebar */}
-        <HistorySidebar
-          entries={entries}
-          selectedEntryId={activeEntry.id}
-          onSelectEntry={(entry) => setSelectedEntryId(entry.id)}
-          onDeleteEntry={handleDeleteEntry}
-          isOpen={mobileSidebarOpen}
-          onCloseMobile={() => setMobileSidebarOpen(false)}
-        />
+        <button
+          id="mobile-nav-history"
+          onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
+          className={`flex flex-col items-center justify-center min-h-[48px] min-w-[56px] px-2 py-1 rounded-xl transition relative active:scale-95 ${
+            mobileSidebarOpen
+              ? 'text-amber-400 font-bold'
+              : 'text-neutral-400 hover:text-neutral-200 font-medium'
+          }`}
+        >
+          <History className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] tracking-tight">History</span>
+          {userRides.length > 0 && (
+            <span className="absolute top-1 right-2 min-w-[16px] h-4 px-1 rounded-full bg-amber-400 text-neutral-950 text-[9px] font-extrabold flex items-center justify-center">
+              {userRides.length > 9 ? '9+' : userRides.length}
+            </span>
+          )}
+        </button>
 
-        {/* Workspace Canvas */}
-        <main className="flex-1 flex flex-col h-full min-w-0">
-          <ReflectionWorkspace
-            key={activeEntry.id}
-            entry={activeEntry}
-            onUpdateEntry={handleUpdateEntry}
-            isSaving={isSaving}
-            onAutoSummarize={handleAutoSummarize}
-            isSummarizing={isSummarizing}
-          />
-        </main>
-      </div>
+        {/* Center Prominent New Ride Action */}
+        <button
+          id="mobile-nav-new-ride"
+          onClick={() => {
+            handleNewRide();
+            setCurrentView('private');
+            setMobileSidebarOpen(false);
+          }}
+          className="flex flex-col items-center justify-center -mt-5 bg-gradient-to-tr from-amber-500 to-amber-300 text-neutral-950 font-bold w-12 h-12 rounded-full shadow-lg shadow-amber-500/25 border-2 border-neutral-950 active:scale-90 transition"
+          title="Log New Ride"
+        >
+          <Plus className="w-6 h-6 stroke-[2.5]" />
+        </button>
+
+        <button
+          id="mobile-nav-community"
+          onClick={() => {
+            setCurrentView('community');
+            setMobileSidebarOpen(false);
+          }}
+          className={`flex flex-col items-center justify-center min-h-[48px] min-w-[56px] px-2 py-1 rounded-xl transition active:scale-95 ${
+            currentView === 'community' && !mobileSidebarOpen
+              ? 'text-amber-400 font-bold'
+              : 'text-neutral-400 hover:text-neutral-200 font-medium'
+          }`}
+        >
+          <Users className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] tracking-tight">Community</span>
+        </button>
+
+        {isAdmin && (
+          <button
+            id="mobile-nav-admin"
+            onClick={() => {
+              setCurrentView('admin');
+              setMobileSidebarOpen(false);
+            }}
+            className={`flex flex-col items-center justify-center min-h-[48px] min-w-[56px] px-2 py-1 rounded-xl transition active:scale-95 ${
+              currentView === 'admin'
+                ? 'text-amber-400 font-bold'
+                : 'text-neutral-400 hover:text-neutral-200 font-medium'
+            }`}
+          >
+            <Settings className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] tracking-tight">Admin</span>
+          </button>
+        )}
+      </nav>
     </div>
   );
 };
