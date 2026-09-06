@@ -21,6 +21,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { JournalEntry, JournalMessage, ReflectionMode } from '../types';
+import { VoiceSpeechInput } from './VoiceSpeechInput';
 
 interface ReflectionWorkspaceProps {
   entry: JournalEntry;
@@ -136,6 +137,57 @@ export const ReflectionWorkspace: React.FC<ReflectionWorkspaceProps> = ({
         timestamp: new Date().toISOString(),
       };
       onUpdateEntry({ messages: [...newMessages, errorMessage] });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleRetry = async (failedMsgIndex: number) => {
+    // Collect all valid messages before this error
+    const contextMessages = entry.messages.slice(0, failedMsgIndex);
+    if (contextMessages.length === 0) return;
+
+    onUpdateEntry({ messages: contextMessages });
+    setIsGenerating(true);
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: contextMessages.map((m) => ({ role: m.role, content: m.content })),
+          mode: 'chat',
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || 'Server responded with an error');
+      }
+
+      const data = await response.json();
+      const modelMessage: JournalMessage = {
+        id: 'msg-' + Date.now() + '-model',
+        role: 'model',
+        content: data.text || 'I have reflected on your thought.',
+        timestamp: new Date().toISOString(),
+      };
+
+      const updatedMessages = [...contextMessages, modelMessage];
+      onUpdateEntry({ messages: updatedMessages });
+
+      if (entry.title === 'Untitled Reflection' && updatedMessages.length >= 2) {
+        onAutoSummarize();
+      }
+    } catch (err: any) {
+      console.error('Error during retry:', err);
+      const errorMessage: JournalMessage = {
+        id: 'msg-' + Date.now() + '-err',
+        role: 'model',
+        content: `*Error generating response: ${err.message || 'Please check network connection.'}*`,
+        timestamp: new Date().toISOString(),
+      };
+      onUpdateEntry({ messages: [...contextMessages, errorMessage] });
     } finally {
       setIsGenerating(false);
     }
@@ -361,9 +413,24 @@ export const ReflectionWorkspace: React.FC<ReflectionWorkspaceProps> = ({
               <Compass className="w-6 h-6" />
             </div>
             <h2 className="text-xl font-serif text-neutral-100 mb-2">Begin Your Reflection</h2>
-            <p className="text-sm text-neutral-400 mb-8 max-w-md mx-auto leading-relaxed">
-              Express what is on your mind today. Write freely—Gemini is here to help you reflect, synthesize, and gain clarity.
+            <p className="text-sm text-neutral-400 mb-6 max-w-md mx-auto leading-relaxed">
+              Express what is on your mind today. Type freely or speak into your microphone—Gemini is here to help you reflect, synthesize, and gain clarity.
             </p>
+
+            {/* Voice & Prompts Starter */}
+            <div className="mb-6 flex flex-col items-center justify-center gap-2">
+              <VoiceSpeechInput
+                variant="prominent"
+                buttonLabel="Speak into Microphone"
+                onTranscriptReady={(transcript) => {
+                  setInputContent((prev) => (prev.trim() ? prev + ' ' + transcript : transcript));
+                  textareaRef.current?.focus();
+                }}
+              />
+              <span className="text-[11px] text-neutral-500">
+                or choose a reflection prompt below:
+              </span>
+            </div>
 
             {/* Quick Starters */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
@@ -383,9 +450,10 @@ export const ReflectionWorkspace: React.FC<ReflectionWorkspaceProps> = ({
             </div>
           </div>
         ) : (
-          entry.messages.map((msg) => {
+          entry.messages.map((msg, idx) => {
             const isUser = msg.role === 'user';
             const isCopied = copiedId === msg.id;
+            const isError = msg.id.endsWith('-err') || msg.content.startsWith('*Error generating response');
 
             return (
               <div
@@ -398,6 +466,8 @@ export const ReflectionWorkspace: React.FC<ReflectionWorkspaceProps> = ({
                   className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 text-xs font-semibold shadow-sm ${
                     isUser
                       ? 'bg-neutral-700 text-neutral-200 border border-neutral-600'
+                      : isError
+                      ? 'bg-rose-900/80 text-rose-300 border border-rose-700'
                       : 'bg-gradient-to-br from-amber-400 to-orange-500 text-neutral-950 font-bold'
                   }`}
                 >
@@ -409,30 +479,53 @@ export const ReflectionWorkspace: React.FC<ReflectionWorkspaceProps> = ({
                   className={`flex flex-col group relative rounded-2xl p-4 sm:p-5 text-sm transition ${
                     isUser
                       ? 'bg-neutral-800/90 text-neutral-100 border border-neutral-700/80 rounded-tr-sm max-w-xl'
+                      : isError
+                      ? 'bg-rose-950/40 border border-rose-800/60 rounded-tl-sm w-full text-rose-200'
                       : 'bg-neutral-900/90 text-neutral-200 border border-neutral-800 rounded-tl-sm w-full'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-4 mb-1.5 text-[11px] text-neutral-500">
-                    <span className="font-medium text-neutral-400">
-                      {isUser ? 'You' : 'Gemini Reflection'}
+                    <span className={`font-medium ${isError ? 'text-rose-400' : 'text-neutral-400'}`}>
+                      {isUser ? 'You' : isError ? 'Gemini Notice' : 'Gemini Reflection'}
                     </span>
                     <div className="flex items-center gap-2">
                       <span className="font-mono">
                         {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
-                      <button
-                        onClick={() => handleCopyText(msg.id, msg.content)}
-                        className="opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-neutral-200 p-0.5 transition"
-                        title="Copy text"
-                      >
-                        {isCopied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                      </button>
+                      {!isError && (
+                        <button
+                          onClick={() => handleCopyText(msg.id, msg.content)}
+                          className="opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-neutral-200 p-0.5 transition"
+                          title="Copy text"
+                        >
+                          {isCopied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                      )}
                     </div>
                   </div>
 
                   {/* Message Content */}
                   {isUser ? (
                     <div className="whitespace-pre-wrap leading-relaxed">{msg.content}</div>
+                  ) : isError ? (
+                    <div className="space-y-3">
+                      <div className="text-sm text-rose-200/90 leading-relaxed font-light">
+                        {msg.content.replace(/^\*|\*$/g, '')}
+                      </div>
+                      <div className="flex items-center gap-3 pt-2 border-t border-rose-800/40">
+                        <button
+                          onClick={() => handleRetry(idx)}
+                          disabled={isGenerating}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-neutral-950 font-medium text-xs transition active:scale-95 shadow-sm disabled:opacity-50"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${isGenerating ? 'animate-spin' : ''}`} />
+                          <span>Retry Reflection (Resilient Fallback)</span>
+                        </button>
+                        <span className="text-[11px] text-neutral-400">
+                          Your prompt is preserved above.
+                        </span>
+                      </div>
+                    </div>
                   ) : (
                     <div className="markdown-body prose prose-invert prose-sm max-w-none text-neutral-200 leading-relaxed">
                       <Markdown>{msg.content}</Markdown>
@@ -515,10 +608,18 @@ export const ReflectionWorkspace: React.FC<ReflectionWorkspaceProps> = ({
               value={inputContent}
               onChange={(e) => setInputContent(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Write your journal entry or ask Gemini for reflection... (Press Enter to send, Shift+Enter for new line)"
+              placeholder="Write or speak into your microphone to add a journal entry... (Enter to send, Shift+Enter for new line)"
               className="w-full bg-transparent text-neutral-100 placeholder-neutral-500 text-sm p-3 focus:outline-none resize-none leading-relaxed min-h-[50px] max-h-40"
             />
           </div>
+
+          <VoiceSpeechInput
+            onTranscriptReady={(transcript) => {
+              setInputContent((prev) => (prev.trim() ? prev + ' ' + transcript : transcript));
+              textareaRef.current?.focus();
+            }}
+            disabled={isGenerating}
+          />
 
           <button
             id="send-message-button"

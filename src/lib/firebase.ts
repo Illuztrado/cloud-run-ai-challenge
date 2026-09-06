@@ -73,6 +73,35 @@ export async function logOut(): Promise<void> {
   await signOut(auth);
 }
 
+/**
+ * Strips all undefined properties recursively to ensure zero-crash payload hygiene
+ * before any document payload reaches the Cloud Firestore driver.
+ */
+export function sanitizePayload<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data
+      .filter((item) => item !== undefined)
+      .map((item) => sanitizePayload(item)) as unknown as T;
+  }
+  if (typeof data === 'object' && !(data instanceof Date)) {
+    // Preserve special Firestore FieldValues like serverTimestamp()
+    if ('_methodName' in (data as any) || (data as any)?.constructor?.name === 'FieldValue') {
+      return data;
+    }
+    const cleaned: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data)) {
+      if (value !== undefined) {
+        cleaned[key] = sanitizePayload(value);
+      }
+    }
+    return cleaned as T;
+  }
+  return data;
+}
+
 // User Profile sync
 export async function syncUserProfile(user: User): Promise<void> {
   if (!user || !user.uid) return;
@@ -81,25 +110,23 @@ export async function syncUserProfile(user: User): Promise<void> {
     const userDoc = await getDoc(userRef);
     const now = new Date().toISOString();
     if (!userDoc.exists()) {
-      await setDoc(userRef, {
+      const payload = sanitizePayload({
         uid: user.uid,
-        email: user.email,
+        email: user.email || '',
         displayName: user.displayName || user.email?.split('@')[0] || 'Reflective Writer',
-        photoURL: user.photoURL,
+        photoURL: user.photoURL || '',
         createdAt: now,
         lastLoginAt: now,
         serverCreatedAt: serverTimestamp(),
       });
+      await setDoc(userRef, payload);
     } else {
-      await setDoc(
-        userRef,
-        {
-          displayName: user.displayName || user.email?.split('@')[0] || 'Reflective Writer',
-          photoURL: user.photoURL,
-          lastLoginAt: now,
-        },
-        { merge: true }
-      );
+      const payload = sanitizePayload({
+        displayName: user.displayName || user.email?.split('@')[0] || 'Reflective Writer',
+        photoURL: user.photoURL || '',
+        lastLoginAt: now,
+      });
+      await setDoc(userRef, payload, { merge: true });
     }
   } catch (err) {
     console.error('Error syncing user profile:', err);
@@ -115,16 +142,14 @@ export async function saveJournalEntry(userId: string, entry: JournalEntry): Pro
   const entryRef = doc(db, 'users', userId, 'entries', entry.id);
   const now = new Date().toISOString();
 
-  await setDoc(
-    entryRef,
-    {
-      ...entry,
-      userId,
-      updatedAt: now,
-      serverUpdatedAt: serverTimestamp(),
-    },
-    { merge: true }
-  );
+  const sanitized = sanitizePayload({
+    ...entry,
+    userId,
+    updatedAt: now,
+    serverUpdatedAt: serverTimestamp(),
+  });
+
+  await setDoc(entryRef, sanitized, { merge: true });
 }
 
 export async function deleteJournalEntry(userId: string, entryId: string): Promise<void> {

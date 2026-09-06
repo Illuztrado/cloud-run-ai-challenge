@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, ShieldCheck, Lock, BookOpen, Compass, Lightbulb, ArrowRight, MessageSquare, Flame } from 'lucide-react';
+import { Sparkles, ShieldCheck, Lock, BookOpen, Compass, Lightbulb, ArrowRight, MessageSquare, Flame, Mic } from 'lucide-react';
 import { signInWithGoogle } from '../lib/firebase';
 
 interface LandingPageProps {
@@ -140,13 +140,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignedIn }) => {
           </div>
         )}
 
-        <div className="flex items-center gap-6 text-xs text-neutral-500 mt-2">
+        <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 text-xs text-neutral-500 mt-2">
+          <span className="flex items-center gap-1.5">
+            <Mic className="w-3.5 h-3.5 text-amber-400" /> Voice & Keyboard Input
+          </span>
+          <span>•</span>
           <span className="flex items-center gap-1.5">
             <Lock className="w-3.5 h-3.5 text-neutral-400" /> End-to-end user isolation
           </span>
           <span>•</span>
           <span className="flex items-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" /> Gemini 2.5 Flash
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" /> Gemini 3.5 Flash
           </span>
           <span>•</span>
           <span className="flex items-center gap-1.5">
@@ -158,11 +162,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSignedIn }) => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-20 w-full text-left">
           <div className="p-6 rounded-2xl bg-neutral-900/60 border border-neutral-800/80 backdrop-blur-sm">
             <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-4">
-              <MessageSquare className="w-5 h-5" />
+              <Mic className="w-5 h-5" />
             </div>
-            <h3 className="font-semibold text-base text-neutral-100 mb-2">Multi-Turn Dialogue</h3>
+            <h3 className="font-semibold text-base text-neutral-100 mb-2">Voice & Text Input</h3>
             <p className="text-sm text-neutral-400 leading-relaxed">
-              Have nuanced back-and-forth conversations to articulate emotions, untangle challenges, and discover clarity.
+              Speak into your microphone or type freely. Converse in nuanced back-and-forth multi-turn dialogues with Gemini.
             </p>
           </div>
 

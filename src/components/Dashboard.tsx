@@ -23,9 +23,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [firestoreError, setFirestoreError] = useState<string | null>(null);
+  const [failedEntryToRetry, setFailedEntryToRetry] = useState<JournalEntry | null>(null);
+  const [isRetryingSave, setIsRetryingSave] = useState(false);
 
   // Auto-save debounce timer
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const saveTimeoutRef = useRef<any>(null);
 
   // Create a brand new blank entry
   const createNewEntry = useCallback((): JournalEntry => {
@@ -114,12 +116,32 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
     saveTimeoutRef.current = setTimeout(async () => {
       try {
         await saveJournalEntry(user.uid, updatedEntry);
+        setFirestoreError(null);
+        setFailedEntryToRetry(null);
       } catch (err: any) {
         console.error('Error saving to Firestore:', err);
+        setFailedEntryToRetry(updatedEntry);
+        setFirestoreError(`Database save error: ${err.message || 'Could not persist entry to Firestore.'}`);
       } finally {
         setIsSaving(false);
       }
     }, 600);
+  };
+
+  // Retry Save action
+  const handleRetrySave = async () => {
+    if (!failedEntryToRetry) return;
+    setIsRetryingSave(true);
+    try {
+      await saveJournalEntry(user.uid, failedEntryToRetry);
+      setFirestoreError(null);
+      setFailedEntryToRetry(null);
+    } catch (err: any) {
+      console.error('Retry save failed:', err);
+      setFirestoreError(`Retry failed: ${err.message || 'Database error occurred.'}`);
+    } finally {
+      setIsRetryingSave(false);
+    }
   };
 
   // Handle New Entry creation
@@ -188,11 +210,32 @@ export const Dashboard: React.FC<DashboardProps> = ({ user }) => {
         activeEntryTitle={activeEntry.title}
       />
 
-      {/* Firestore Error Alert if any */}
+      {/* Firestore Error Alert with Explicit Recovery */}
       {firestoreError && (
-        <div className="bg-red-950/80 border-b border-red-800/80 px-4 py-2 text-xs text-red-200 flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 text-red-400" />
-          <span>{firestoreError}</span>
+        <div id="firestore-error-banner" className="bg-red-950/90 border-b border-red-800/80 px-4 py-2.5 text-xs text-red-200 flex items-center justify-between gap-3 animate-in fade-in">
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+            <span className="truncate">{firestoreError}</span>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {failedEntryToRetry && (
+              <button
+                id="retry-save-button"
+                onClick={handleRetrySave}
+                disabled={isRetryingSave}
+                className="px-2.5 py-1 bg-red-800 hover:bg-red-700 text-white rounded font-medium text-[11px] transition flex items-center gap-1.5"
+              >
+                {isRetryingSave ? 'Saving...' : 'Retry Save'}
+              </button>
+            )}
+            <button
+              onClick={() => setFirestoreError(null)}
+              className="text-red-400 hover:text-red-200 px-1 text-sm font-semibold"
+              title="Dismiss banner"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
 

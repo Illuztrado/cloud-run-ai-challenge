@@ -1,14 +1,19 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow users to access only their own user document
+    // User profile document
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
 
-      // Allow users to access only their own journal entries
+      // User personal journal entries
       match /entries/{entryId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
+    }
+
+    // Direct interactions path for AI interaction sessions and telemetry
+    match /users/{userId}/interactions/{interactionId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
   }
 }
